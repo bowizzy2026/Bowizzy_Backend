@@ -17,7 +17,8 @@ app.use((req, res, next) => {
   app.use(cors({
     origin: [
       "https://www.bowizzy.com",
-      "https://bowizzy.com"
+      "https://bowizzy.com",
+      "https://admin.bowizzy.com"
     ],
     credentials: true
   }));

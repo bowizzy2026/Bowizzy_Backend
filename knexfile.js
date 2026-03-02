@@ -8,7 +8,7 @@ module.exports = {
       user: process.env.DB_USER,
       password: process.env.DB_PASS,
       database: process.env.DB_NAME,
-      ssl: { rejectUnauthorized: false },
+      ssl: process.env.NODE_ENV === 'development' ? false : { rejectUnauthorized: false },
     },
     migrations: {
       directory: "./migrations",
