@@ -18,7 +18,6 @@ app.use((req, res, next) => {
     origin: [
       "https://www.bowizzy.com",
       "https://bowizzy.com",
-      "https://admin.bowizzy.com"
     ],
     credentials: true
   }));
