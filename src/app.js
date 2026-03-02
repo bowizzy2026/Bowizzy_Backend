@@ -14,13 +14,7 @@ app.use((req, res, next) => {
 });
 
 // Middlewares
-  app.use(cors({
-    origin: [
-      "https://www.bowizzy.com",
-      "https://bowizzy.com"
-    ],
-    credentials: true
-  }));
+app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -64,7 +58,7 @@ app.use("/", certificatesRouter);
 app.use("/", resumeTemplatesRouter);
 app.use("/", locationRouter);
 app.use("/", dashboardRouter);
-app.use("/", interviewSlotRouter); 
+app.use("/", interviewSlotRouter);
 app.use("/", interviewScheduleRouter);
 app.use("/", technicalSummaryRouter);
 app.use("/", userSubscriptionRouter);
