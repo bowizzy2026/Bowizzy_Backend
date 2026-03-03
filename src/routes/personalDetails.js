@@ -39,4 +39,22 @@ router.delete(
   controller.remove
 );
 
+router.post(
+  "/personal-details/send-otp",
+  auth,
+  controller.sendOTP
+);
+
+router.post(
+  "/personal-details/verify-otp",
+  auth,
+  controller.verifyOTP
+);
+
+router.post(
+  "/personal-details/update-with-otp",
+  auth,
+  controller.updatePersonalDetailsWithOTP
+);
+
 module.exports = router;
