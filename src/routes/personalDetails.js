@@ -56,5 +56,9 @@ router.post(
   auth,
   controller.updatePersonalDetailsWithOTP
 );
-
+router.get(
+  "/personal-details/profile-data",
+  auth,
+  controller.profileData
+);
 module.exports = router;

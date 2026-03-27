@@ -6,7 +6,60 @@ const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 dayjs.extend(utc);
 dayjs.extend(timezone);
+const { google } = require("googleapis");
+const auth = new google.auth.GoogleAuth({
+  keyFile: "bowizzy-489805-fd2e496ca7f0.json",
+  scopes: ["https://www.googleapis.com/auth/calendar"],
+});
 
+exports.createMeet = async (req, res) => {
+  try {
+    const authClient = await auth.getClient();
+    const calendar = google.calendar({ version: "v3", auth: authClient });
+    const event = {
+      summary: "Mock Interview with Bowizzy",
+      description: "This is a scheduled mock interview session.",
+      start: {
+        dateTime: "2026-03-12T10:00:00",
+        timeZone: "Asia/Kolkata",
+      },
+      end: {
+        dateTime: "2026-03-12T11:00:00",
+        timeZone: "Asia/Kolkata",
+      },
+      conferenceData: {
+        createRequest: {
+          requestId: "meet-" + Date.now(),
+          conferenceSolutionKey: {
+            type: "googleMeet",
+          },
+        },
+      },
+    }
+    const response = await calendar.events.insert({
+      calendarId: "primary",
+      resource: event,
+      conferenceDataVersion: 1,
+    });
+    // Defensive: check for conferenceData and entryPoints
+    let meetLink = null;
+    if (
+      response.data.conferenceData &&
+      Array.isArray(response.data.conferenceData.entryPoints) &&
+      response.data.conferenceData.entryPoints.length > 0
+    ) {
+      meetLink = response.data.conferenceData.entryPoints[0].uri;
+    }
+    return res.status(200).json({
+      message: "Google Calendar event created successfully",
+      eventLink: response.data.htmlLink,
+      meetLink,
+    });
+  } catch (error) {
+    console.error("Error creating Google Calendar event:", error);
+    return res.status(500).json({ message: "Error creating Google Calendar event" });
+  }
+}
 // statuses considered blocking
 const ACTIVE_STATUSES = ['open', 'confirmed'];
 
@@ -219,7 +272,7 @@ exports.updatePaymentInfo = async (req, res) => {
       paid_amount: parseFloat(paid_amount),
       updated_at: InterviewSlot.knex().raw("now()")
     };
-
+    console.log(patchPayload)
     const updated = await InterviewSlot.query()
       .patch(patchPayload)
       .where({
@@ -227,7 +280,7 @@ exports.updatePaymentInfo = async (req, res) => {
         candidate_id: user_id
       })
       .returning('*');
-
+    console.log(updated)
     // If successfully updates, returns array of updated object else undefined
     const updatedRow = Array.isArray(updated) ? updated[0] : updated;
 
@@ -235,7 +288,7 @@ exports.updatePaymentInfo = async (req, res) => {
       return res.status(404).json({ message: "Interview slot not found" });
     }
 
-    return res.status(200).json( updatedRow );
+    return res.status(200).json(updatedRow);
 
   } catch (err) {
     return res.status(500).json({ message: "Error updating interview slot payment info" });
@@ -272,7 +325,7 @@ exports.getByUser = async (req, res) => {
 };
 
 
-  exports.getById = async (req, res) => {
+exports.getById = async (req, res) => {
   try {
     const user_id = req.user.user_id;
     const { id } = req.params;
@@ -487,9 +540,9 @@ exports.cancel = async (req, res) => {
         }
       });
 
-      return res.status(200).json({ 
+      return res.status(200).json({
         message: "Interview got cancelled successfully",
-        Updated_interview_slot: updated_slot, 
+        Updated_interview_slot: updated_slot,
         Updated_interview_schedule: updated_schedule,
         refund_info: refundInfo
       });

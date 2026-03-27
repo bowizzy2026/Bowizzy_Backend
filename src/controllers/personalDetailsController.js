@@ -407,3 +407,34 @@ exports.updatePersonalDetailsWithOTP = async (req, res) => {
     res.status(500).json({ message: "Error updating personal details" });
   }
 };
+exports.profileData = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    
+    // Fetch personal details (contains name info)
+    const personalDetails = await PersonalDetails.query().findOne({ user_id });
+    
+    // Fetch user (contains image)
+    const User = require("../models/User");
+    const user = await User.query().findById(user_id);
+    
+    if (!personalDetails || !user) {
+      return res.status(404).json({ message: "Profile data not found" });
+    }
+    
+    // Construct response with name and image
+    const profileData = {
+      name: {
+        first_name: personalDetails.first_name,
+        middle_name: personalDetails.middle_name,
+        last_name: personalDetails.last_name,
+      },
+      image: personalDetails.profile_photo_url || null,
+    };
+    
+    res.json(profileData);
+  } catch (err) {
+    console.error("Error fetching profile data:", err);
+    res.status(500).json({ message: "Error fetching profile data" });
+  }
+}

@@ -3,8 +3,7 @@ const InterviewSchedule = require("../models/interviewSchedule");
 const BankDetails = require("../models/bankDetails");
 const User = require("../models/User");
 const SaveSlot = require("../models/saveSlot");
-// const { createMeet } = require("../services/googleMeetService");
-const { createZoomMeeting } = require("../services/zoomMeetService");
+const { createGoogleMeeting } = require("../services/googleMeetService");
 
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
@@ -120,8 +119,8 @@ exports.create = async (req, res) => {
         throw e;
       }
 
-      // ✅ CREATE ZOOM MEETING
-      const zoomLink = await createZoomMeeting({
+      // ✅ CREATE GOOGLE MEET
+      const meetLink = await createGoogleMeeting({
         startTimeUtc: slotRow.start_time_utc
       });
 
@@ -135,8 +134,8 @@ exports.create = async (req, res) => {
           start_time_utc: slotRow.start_time_utc,
           end_time_utc: slotRow.end_time_utc,
           interview_mode: slotRow.interview_mode,
-          meeting_link: zoomLink,
-          meeting_type: "zoom",
+          meeting_link: meetLink,
+          meeting_type: "google-meet",
           created_at: knex.raw("now()"),
           updated_at: knex.raw("now()")
         })

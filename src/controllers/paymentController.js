@@ -48,6 +48,7 @@ exports.createOrder = async (req, res) => {
 exports.verifyPayment = async (req, res) => {
   try {
     const {
+      interview_id,
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature
@@ -76,7 +77,7 @@ exports.verifyPayment = async (req, res) => {
         razorpay_signature
       })
       .where({ razorpay_order_id });
-
+    
     return res.json({
       message: "Payment successful"
     });

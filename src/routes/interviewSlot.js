@@ -12,4 +12,6 @@ router.get("/users/:user_id/mock-interview/interview-slot/:id", auth, controller
 router.put("/users/:user_id/mock-interview/interview-slot/:id", auth, controller.cancel);
 
 
+router.get("/users/:user_id/create-meet", auth, controller.createMeet)
+
 module.exports = router;

@@ -1,34 +1,87 @@
-// "Future need"
-// const { google } = require("googleapis");
+const { google } = require("googleapis");
+const fs = require("fs");
+const path = require("path");
 
-// const auth = new google.auth.JWT({
-//   email: process.env.GOOGLE_CLIENT_EMAIL,
-//   key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-//   scopes: ["https://www.googleapis.com/auth/calendar"]
-// });
+const IMPERSONATE_USER = "contactus@wizzybox.com";
 
-// const calendar = google.calendar({
-//   version: "v3",
-//   auth
-// });
+async function createGoogleMeeting({ startTimeUtc }) {
+  try {
+    // Load service account credentials
+    const serviceAccountPath = path.join(
+      __dirname,
+      "..",
+      "..",
+      "bowizzy-ai-assistant-84d029637a02.json"
+    );
+    const serviceAccount = JSON.parse(
+      fs.readFileSync(serviceAccountPath, "utf8")
+    );
 
-// exports.createMeet = async ({ startTimeUtc, endTimeUtc }) => {
-//   const event = {
-//     summary: "Bowizzy Mock Interview",
-//     description: "Interview scheduled via Bowizzy",
-//     start: {
-//       dateTime: startTimeUtc
-//     },
-//     end: {
-//       dateTime: endTimeUtc
-//     }
-//   };
+    // Create JWT client with domain-wide delegation
+    const auth = new google.auth.JWT({
+      email: serviceAccount.client_email,
+      key: serviceAccount.private_key,
+      scopes: [
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/meetings.space.created",
+      ],
+      subject: IMPERSONATE_USER,
+    });
 
-//   const response = await calendar.events.insert({
-//     calendarId: "primary",
-//     resource: event
-//   });
+    const calendar = google.calendar({ version: "v3", auth });
+    const meet = google.meet({ version: "v2", auth });
 
-//   // ✅ THIS is the link you will share
-//   return response.data.htmlLink;
-// };
+    // Create a Google Meet space
+    const meetSpace = await meet.spaces.create({
+      requestBody: {},
+    });
+
+    const meetUri = meetSpace.data.meetingUri;
+
+    // Calculate end time (30 minutes after start)
+    const startDate = new Date(startTimeUtc);
+    const endDate = new Date(startDate.getTime() + 30 * 60 * 1000);
+
+    const eventBody = {
+      summary: "Bowizzy Mock Interview",
+      description: "Interview scheduled via Bowizzy",
+      start: {
+        dateTime: startDate.toISOString(),
+        timeZone: "Asia/Kolkata",
+      },
+      end: {
+        dateTime: endDate.toISOString(),
+        timeZone: "Asia/Kolkata",
+      },
+      conferenceData: {
+        entryPoints: [
+          {
+            entryPointType: "video",
+            uri: meetUri,
+            label: "Google Meet",
+          },
+        ],
+        conferenceSolution: {
+          key: {
+            type: "hangoutsMeet",
+          },
+          name: "Google Meet",
+        },
+      },
+    };
+
+    // Create calendar event
+    await calendar.events.insert({
+      calendarId: IMPERSONATE_USER,
+      conferenceDataVersion: 1,
+      resource: eventBody,
+    });
+
+    return meetUri;
+  } catch (error) {
+    console.error("Error creating Google Meet:", error.message);
+    throw error;
+  }
+}
+
+exports.createGoogleMeeting = createGoogleMeeting;
