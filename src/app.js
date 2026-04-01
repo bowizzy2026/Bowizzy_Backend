@@ -14,7 +14,7 @@ app.use((req, res, next) => {
 });
 
 // Middlewares
-app.use(cors({ origin: ["https://api.bowizzy.com", "http://localhost:5173"] }));
+app.use(cors({ origin: ["https://api.bowizzy.com", "http://localhost:5173", "https://bowizzy.com"] }));
 app.use(express.json());
 app.use(morgan("dev"));
 
