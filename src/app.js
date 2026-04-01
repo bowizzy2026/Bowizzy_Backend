@@ -21,8 +21,6 @@ app.use(cors({
   credentials: true,
 }));
 
-// Handle preflight requests explicitly
-app.options("(.*)", cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
@@ -85,10 +83,8 @@ app.get("/test", async (req, res) => {
     const fs = require("fs");
     const path = require("path");
 
-    // The real Workspace user the service account will impersonate
     const IMPERSONATE_USER = "contactus@wizzybox.com";
 
-    // Load service account credentials
     const serviceAccountPath = path.join(
       __dirname,
       "..",
@@ -98,7 +94,6 @@ app.get("/test", async (req, res) => {
       fs.readFileSync(serviceAccountPath, "utf8")
     );
 
-    // Create JWT client with domain-wide delegation (subject = impersonated user)
     const auth = new google.auth.JWT({
       email: serviceAccount.client_email,
       key: serviceAccount.private_key,
@@ -106,18 +101,16 @@ app.get("/test", async (req, res) => {
         "https://www.googleapis.com/auth/calendar",
         "https://www.googleapis.com/auth/meetings.space.created",
       ],
-      subject: IMPERSONATE_USER, // 👈 impersonate a real Workspace user
+      subject: IMPERSONATE_USER,
     });
 
     const calendar = google.calendar({ version: "v3", auth });
     const meet = google.meet({ version: "v2", auth });
 
-    // Generate date as today at 6 PM to 6:30 PM
     const now = new Date();
     const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0, 0).toISOString();
     const endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 30, 0, 0).toISOString();
 
-    // Create a Google Meet space
     const meetSpace = await meet.spaces.create({
       requestBody: {},
     });
@@ -145,17 +138,16 @@ app.get("/test", async (req, res) => {
         ],
         conferenceSolution: {
           key: {
-            type: "hangoutsMeet", // 👈 fixed: was "key", should be "type"
+            type: "hangoutsMeet",
           },
           name: "Google Meet",
         },
       },
     };
 
-    // Create calendar event under the impersonated user's calendar
     const event = await calendar.events.insert({
-      calendarId: IMPERSONATE_USER, // 👈 use the impersonated user's calendar, not service account email
-      conferenceDataVersion: 1,     // 👈 required to attach conferenceData
+      calendarId: IMPERSONATE_USER,
+      conferenceDataVersion: 1,
       resource: eventBody,
     });
 
