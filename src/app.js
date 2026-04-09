@@ -47,6 +47,8 @@ const userVerificationRequest = require("./routes/userVerificationRequest");
 const userRouter = require("./routes/user");
 const adminRouter = require("./routes/admin");
 const creditsRouter = require("./routes/credits");
+const aiSessionRouter = require("./routes/aiSession");
+const aiChatRouter = require("./routes/aiChat");
 app.use("/payment", require("./routes/payment"));
 app.use("/api/terms", require("./routes/termsConditionRoutes"));
 
@@ -72,6 +74,8 @@ app.use("/", resumeRouter);
 app.use("/", candidateReviewRouter);
 app.use("/", interviewerReviewRouter);
 app.use("/", userVerificationRequest);
+app.use("/", aiSessionRouter);
+app.use("/", aiChatRouter);
 
 app.get("/", (req, res) => {
   res.send("Node backend is working!");
