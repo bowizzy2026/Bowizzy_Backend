@@ -284,3 +284,46 @@ exports.checkCouponCode = async (req, res) => {
     });
   }
 };
+exports.adminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.query().findOne({ email });
+
+    if (!user || user.user_type !== "admin") {
+      return res.status(401).json({
+        message: "Admin not found"
+      });
+    }
+
+    const match = await bcrypt.compare(password, user.password_hash);
+
+    if (!match) {
+      return res.status(401).json({
+        message: "Invalid credentials"
+      });
+    }
+
+    const token = jwt.sign(
+      { user_id: user.user_id, user_type: user.user_type },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN }
+    );
+
+    await User.query()
+      .patch({ current_token: token })
+      .where({ user_id: user.user_id });
+
+    return res.json({
+      message: "Admin login successful",
+      user_id: user.user_id,
+      email: user.email,
+      user_type: user.user_type,
+      token
+    });
+
+  } catch (err) {
+    console.error("Admin Login Error:", err);
+    res.status(500).json({ message: "Admin login failed" });
+  }
+};
