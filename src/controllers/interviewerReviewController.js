@@ -1,15 +1,15 @@
 const InterviewerReview = require("../models/interviewerReview");
 const CandidateReview = require("../models/candidateReview");
 const InterviewSchedule = require("../models/interviewSchedule");
+const BankDetails = require("../models/bankDetails");
 
 exports.create = async (req, res) => {
   try {
     const data = req.body;
     const interviewer_id = req.user.user_id;
 
-    if(!interviewer_id)
-    {
-        return res.status(403).json({ message: "Invalid user. Access denied" })
+    if (!interviewer_id) {
+      return res.status(403).json({ message: "Invalid user. Access denied" })
     }
 
 
@@ -36,24 +36,21 @@ exports.create = async (req, res) => {
 
     // Check if all required fields exist and for the ratings the values are in the range of 1-5
     for (const field of requiredFields) {
-      if (!data[field]) 
-      {
+      if (!data[field]) {
         return res.status(400).json({ message: `Missing required field: ${field}` });
       }
-      if(field.endsWith('rating') && (data[field]<1 || data[field]>5))
-      {
+      if (field.endsWith('rating') && (data[field] < 1 || data[field] > 5)) {
         return res.status(400).json({ message: "Rating value Cannot be less than 1 or greater than 5" });
       }
     }
 
-    const candidateInfo  = await InterviewSchedule.query()
+    const candidateInfo = await InterviewSchedule.query()
       .where({ interview_schedule_id: data.interview_schedule_id })
       .select('candidate_id')
       .first();
 
-    if(!candidateInfo)
-    {
-        return res.status(400).json({ message: "Invalid Candidate ID" })
+    if (!candidateInfo) {
+      return res.status(400).json({ message: "Invalid Candidate ID" })
     }
 
     const candidate_id = candidateInfo.candidate_id;
@@ -78,7 +75,7 @@ exports.create = async (req, res) => {
 
     return res.status(201).json(newRecord);
 
-  } catch(err) {
+  } catch (err) {
     return res.status(500).json({ message: "Error creating candidate review" });
   }
 };
@@ -93,7 +90,7 @@ exports.getByUser = async (req, res) => {
 
     return res.status(200).json(list);
 
-  } catch(err) {
+  } catch (err) {
     return res.status(500).json({
       message: "Error fetching interviewer reviews"
     });
@@ -117,9 +114,25 @@ exports.getById = async (req, res) => {
 
     return res.status(200).json(record);
 
-  } catch(err) {
+  } catch (err) {
     return res.status(500).json({
       message: "Error fetching interviewer review"
     });
   }
 };
+
+exports.userHasBankDetails = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+
+    if (!user_id) {
+      return res.status(403).json({ message: "Invalid user. Access denied" });
+    }
+
+    const record = await BankDetails.query().where({ user_id }).first();
+    return res.status(200).json({ hasBankDetails: record ? true : false });
+  } catch (err) {
+    console.error("Error checking bank details: ", err);
+    return res.status(500).json({ message: "Error checking bank details" });
+  }
+}
