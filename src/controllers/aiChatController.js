@@ -103,3 +103,63 @@ exports.startChat = async (req, res) => {
     res.status(500).json({ message: "Error starting chat session" });
   }
 };
+
+// Get all resume data for the authenticated user in one response
+exports.getUserResumeData = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+
+    const PersonalDetails = require("../models/PersonalDetails");
+    const Project = require("../models/Project");
+    const WorkExperience = require("../models/WorkExperience");
+    const JobRole = require("../models/JobRole");
+    const Certificate = require("../models/Certificate");
+    const Link = require("../models/Link");
+    const TechnicalSummary = require("../models/TechnicalSummary");
+    const Education = require("../models/Education");
+
+    // Run all queries in parallel
+    const [
+      personalDetails,
+      projects,
+      workExperiences,
+      jobRole,
+      certificates,
+      links,
+      technicalSummary,
+      education,
+    ] = await Promise.allSettled([
+      PersonalDetails.query().findOne({ user_id }),
+      Project.query().where({ user_id }).orderBy("project_id", "asc"),
+      WorkExperience.query().where({ user_id }).orderBy("experience_id", "asc"),
+      JobRole.query().findOne({ user_id }),
+      Certificate.query().where({ user_id }),
+      Link.query().where({ user_id }).orderBy("link_id", "asc"),
+      TechnicalSummary.query().findOne({ user_id }),
+      Education.query().where({ user_id }).orderBy("education_id", "asc"),
+    ]);
+
+    // Helper to safely extract value from allSettled result
+    const getValue = (result, fallback = null) =>
+      result.status === "fulfilled" ? result.value ?? fallback : fallback;
+
+    return res.json({
+      message: "Resume data retrieved successfully",
+      data: {
+        personal_details: getValue(personalDetails),
+        projects: getValue(projects, []),
+        work_experience: {
+          job_role: getValue(jobRole) ? getValue(jobRole).job_role : null,
+          experiences: getValue(workExperiences, []),
+        },
+        certificates: getValue(certificates, []),
+        links: getValue(links, []),
+        technical_summary: getValue(technicalSummary),
+        education: getValue(education, []),
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching resume data:", err);
+    res.status(500).json({ message: "Error fetching resume data" });
+  }
+};

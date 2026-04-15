@@ -12,4 +12,7 @@ router.get("/sessions/:session_id/chats", auth, controller.getAllChats);
 // Start a chat session
 router.post("/sessions/:session_id/start", auth, controller.startChat);
 
+// Get all resume data for the authenticated user in one request
+router.get("/resume-data", auth, controller.getUserResumeData);
+
 module.exports = router;
