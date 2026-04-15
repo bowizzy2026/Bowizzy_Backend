@@ -68,5 +68,8 @@ router.put("/admin/plans/:id", auth, controller.updatePlan);
 router.delete("/admin/plans/:id", auth, controller.deletePlan);
 router.get("/admin/plans/:id", auth, controller.getPlanById);
 
+router.get('/admin/users',auth, controller.getAllUsers);
+router.get('/admin/all-users-with-bank-details', auth, controller.getAllUsersWithBankDetails);
 
+router.get('/admin/accepted-interviews', auth, controller.getAcceptedInterviews);
 module.exports = router;

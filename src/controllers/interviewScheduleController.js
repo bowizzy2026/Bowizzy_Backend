@@ -1,5 +1,7 @@
 const InterviewSlot = require("../models/interviewSlot");
 const InterviewSchedule = require("../models/interviewSchedule");
+const CandidateReview = require("../models/candidateReview");
+const InterviewerReview = require("../models/interviewerReview");
 const BankDetails = require("../models/bankDetails");
 const User = require("../models/User");
 const SaveSlot = require("../models/saveSlot");
@@ -319,6 +321,7 @@ exports.getByUser = async (req, res) => {
     }
 
     const slotIds = Array.from(new Set(list.map(s => s.interview_slot_id).filter(Boolean)));
+    const scheduleIds = list.map(s => s.interview_schedule_id);
 
     const slots = slotIds.length > 0 ? await InterviewSlot.query()
       .whereIn('interview_slot_id', slotIds)
@@ -326,17 +329,174 @@ exports.getByUser = async (req, res) => {
 
     const slotsById = slots.reduce((acc, sl) => { acc[sl.interview_slot_id] = sl; return acc; }, {});
 
+    // Fetch candidate reviews by interview_schedule_id
+    const candidateReviews = scheduleIds.length > 0 ? await CandidateReview.query()
+      .whereIn('interview_schedule_id', scheduleIds)
+      .select('interview_schedule_id') : [];
+
+    // Fetch interviewer reviews by interview_schedule_id
+    const interviewerReviews = scheduleIds.length > 0 ? await InterviewerReview.query()
+      .whereIn('interview_schedule_id', scheduleIds)
+      .select('interview_schedule_id') : [];
+
+    // Create maps for quick lookup
+    const candidateFeedbackMap = {};
+    const interviewerFeedbackMap = {};
+
+    candidateReviews.forEach(cr => {
+      candidateFeedbackMap[cr.interview_schedule_id] = true;
+    });
+
+    interviewerReviews.forEach(ir => {
+      interviewerFeedbackMap[ir.interview_schedule_id] = true;
+    });
+
     const enriched = list.map(s => ({
       ...s,
       interview_code: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].interview_code : null,
       job_role: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].job_role : null,
       experience: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].experience : null,
+      candidateFeedbackProvided: candidateFeedbackMap[s.interview_schedule_id] || false,
+      interviewerFeedbackProvided: interviewerFeedbackMap[s.interview_schedule_id] || false
     }));
 
     return res.status(200).json(enriched);
 
   } catch(err) {
     return res.status(500).json({ message: "Error fetching interview schedules" });
+  }
+};
+
+
+// Function to get interview schedule by ID with full candidate details and skills
+exports.getScheduleWithCandidateDetails = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    const { interview_schedule_id } = req.params;
+
+    // Only verified users can access
+    const userVerificationInfo = await User.query()
+      .where({ user_id })
+      .select('is_verified')
+      .first();
+
+    if(!userVerificationInfo){
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    if(!userVerificationInfo.is_verified){
+      return res.status(401).json({ message: "User is not verified. Access denied." })
+    }
+
+    // Get the interview schedule
+    const schedule = await InterviewSchedule.query()
+      .findById(interview_schedule_id);
+
+    if (!schedule) {
+      return res.status(404).json({ message: "Interview schedule not found" });
+    }
+
+    // Get candidate details with all relations
+    const candidate = await User.query()
+      .findById(schedule.candidate_id)
+      .withGraphFetched('[personal_details, skills, education_details, work_experience]')
+      .select('user_id', 'email', 'first_name', 'last_name', 'phone_number', 'linkedin_url', 'is_verified');
+
+    // Return schedule with candidate details
+    return res.status(200).json({
+      ...schedule,
+      candidate: candidate || null
+    });
+
+  } catch(err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error fetching interview schedule with candidate details" });
+  }
+};
+
+
+// Function to get all interview schedules for a candidate with interviewer details and interview slot data
+exports.getCandidateSchedules = async (req, res) => {
+  try {
+    const candidate_id = req.user.user_id;
+    const { mode, status } = req.query;
+
+    // Only verified users can access
+    const userVerificationInfo = await User.query()
+      .where({ user_id: candidate_id })
+      .first();
+
+    if(!userVerificationInfo){
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    let query = InterviewSchedule.query()
+      .where({ candidate_id });
+
+    if(mode){
+      query.where({ interview_mode: mode });
+    }
+
+    if(status){
+      query.where({ interview_status: status });
+    }
+
+    const schedules = await query.orderBy("start_time_utc", "asc");
+
+    if (!schedules || schedules.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    // Get all interviewer IDs, slot IDs, and schedule IDs
+    const interviewerIds = schedules.map(s => s.interviewer_id).filter(Boolean);
+    const slotIds = schedules.map(s => s.interview_slot_id).filter(Boolean);
+    const scheduleIds = schedules.map(s => s.interview_schedule_id);
+
+    // Fetch all interviewer details in one query
+    const interviewers = interviewerIds.length > 0 ? await User.query()
+      .whereIn('user_id', interviewerIds)
+      .select('user_id', 'email', 'first_name', 'last_name', 'phone_number', 'linkedin_url') : [];
+
+    // Fetch all interview slots in one query
+    const slots = slotIds.length > 0 ? await InterviewSlot.query()
+      .whereIn('interview_slot_id', slotIds)
+      .select('interview_slot_id', 'interview_code', 'job_role', 'experience', 'interview_mode', 'skills', 'resume_url') : [];
+
+    // Fetch all interviewer reviews in one query
+    const interviewerReviews = scheduleIds.length > 0 ? await InterviewerReview.query()
+      .whereIn('interview_schedule_id', scheduleIds)
+      .select('interview_schedule_id') : [];
+
+    // Create maps by user_id and slot_id
+    const interviewerMap = {};
+    interviewers.forEach(i => {
+      interviewerMap[i.user_id] = i;
+    });
+
+    const slotMap = {};
+    slots.forEach(s => {
+      slotMap[s.interview_slot_id] = s;
+    });
+
+    // Create map for interviewer feedback
+    const interviewerFeedbackMap = {};
+    interviewerReviews.forEach(ir => {
+      interviewerFeedbackMap[ir.interview_schedule_id] = true;
+    });
+
+    // Enrich each schedule with interviewer and slot details, and feedback status
+    const enriched = schedules.map(schedule => ({
+      ...schedule,
+      interviewer: interviewerMap[schedule.interviewer_id] || null,
+      interview_slot: slotMap[schedule.interview_slot_id] || null,
+      isInterviewerFeedbackgiven: interviewerFeedbackMap[schedule.interview_schedule_id] || false
+    }));
+
+    return res.status(200).json(enriched);
+
+  } catch(err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error fetching candidate interview schedules" });
   }
 };
 

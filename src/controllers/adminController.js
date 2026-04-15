@@ -156,6 +156,8 @@ exports.getAllUsers = async (req, res) => {
       .select(
         "users.user_id",
         "users.email",
+        "users.first_name",
+        "users.last_name",
         "users.user_type",
         "users.is_interviewer_verified",
         "users.created_at",
@@ -194,7 +196,7 @@ exports.updateUser = async (req, res) => {
       email,
       user_type,
       is_interviewer_verified,
-      is_verified 
+      is_verified
     });
 
     return res.json({ message: "User updated successfully" });
@@ -242,13 +244,13 @@ exports.getUserPlanStats = async (req, res) => {
 exports.getInterviewSlots = async (req, res) => {
   try {
     const {
-      from, 
-      to, 
-      mode, 
-      status, 
-      job_role, 
-      page, 
-      limit 
+      from,
+      to,
+      mode,
+      status,
+      job_role,
+      page,
+      limit
     } = req.query;
 
     const query = InterviewSlot.query()
@@ -389,7 +391,7 @@ exports.getUserWiseRevenue = async (req, res) => {
     const data = await UserPayment.query()
       .select("user_id")
       .sum("amount as total_paid")
-      .where("status", "success") 
+      .where("status", "success")
       .groupBy("user_id")
       .orderBy("total_paid", "desc");
 
@@ -651,3 +653,86 @@ exports.exportUsersToExcel = async (req, res) => {
     res.status(500).json({ message: "Error exporting users to Excel" });
   }
 };
+
+exports.getAllUsersWithBankDetails = async (req, res) => {
+  try {
+    // Get all bank details with user info
+    const records = await BankDetails.query()
+      .joinRelated('user')
+      .select(
+        'bank_details.*',
+        'user.user_id',
+        'user.user_type',
+        'user.first_name',
+        'user.last_name',
+        'user.email',
+        'user.is_verified'
+      );
+
+    // For each user, fetch company names and institution names
+    const userIds = records.map(r => r.user_id);
+
+    // Get work experience for all users
+    const WorkExperience = require('../models/WorkExperience');
+    const workExp = await WorkExperience.query()
+      .whereIn('user_id', userIds)
+      .select('user_id', 'company_name');
+
+    // Get education details for all users
+    const Education = require('../models/Education');
+    const education = await Education.query()
+      .whereIn('user_id', userIds)
+      .select('user_id', 'institution_name');
+
+    // Group company names and institution names by user_id
+    const companyMap = {};
+    workExp.forEach(w => {
+      if (!companyMap[w.user_id]) companyMap[w.user_id] = [];
+      companyMap[w.user_id].push(w.company_name);
+    });
+
+    const institutionMap = {};
+    education.forEach(e => {
+      if (!institutionMap[e.user_id]) institutionMap[e.user_id] = [];
+      institutionMap[e.user_id].push(e.institution_name);
+    });
+
+    // Attach company and institution names to each record
+    const enriched = records.map(r => ({
+      ...r,
+      company_names: companyMap[r.user_id] || [],
+      institution_names: institutionMap[r.user_id] || []
+    }));
+
+    return res.status(200).json(enriched);
+  } catch (err) {
+    console.error("Error fetching users with bank details: ", err);
+    return res.status(500).json({ message: "Error fetching users with bank details" });
+  }
+}
+
+exports.getAcceptedInterviews = async (req, res) => {
+  try {
+    const interviews = await InterviewSchedule.query()
+      .select(
+        'interview_schedules.interview_schedule_id',
+        'interview_schedules.meeting_link',
+        'interview_schedules.interview_mode',
+        'interview_schedules.interview_status',
+
+        'interview_schedules.start_time_utc as date_time',
+        'candidate_user.first_name as candidate_first_name',
+        'candidate_user.last_name as candidate_last_name',
+        'interviewer_user.first_name as interviewer_first_name',
+        'interviewer_user.last_name as interviewer_last_name'
+      )
+      .leftJoin('users as candidate_user', 'interview_schedules.candidate_id', 'candidate_user.user_id')
+      .leftJoin('users as interviewer_user', 'interview_schedules.interviewer_id', 'interviewer_user.user_id')
+      // .where("interview_schedules.interview_status", "confirmed")
+      .orderBy("interview_schedules.start_time_utc", "desc");
+    return res.status(200).json(interviews);
+  } catch (err) {
+    console.error("Error fetching accepted interviews: ", err);
+    return res.status(500).json({ message: "Error fetching accepted interviews" });
+  }
+}
