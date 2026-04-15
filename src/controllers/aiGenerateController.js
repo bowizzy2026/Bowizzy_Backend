@@ -364,8 +364,8 @@ ${context}`;
 
     // ── 6. Merge enhanced_description onto every project (existing + new) ─────
     const projectsWithGenerated = resumeData.projects.map((p) => {
-      const match = (projectsData.projects_generated || []).find(
-        (g) => g.project_id === p.project_id
+      const match = (projectsData.projects_generated || []).find((g) =>
+        p.project_id ? g.project_id === p.project_id : g.project_title?.toLowerCase() === p.project_title?.toLowerCase()
       );
       return {
         ...p,
@@ -375,8 +375,10 @@ ${context}`;
 
     // ── 7. Merge enhanced_description onto every experience (existing + new) ──
     const experiencesWithGenerated = resumeData.work_experience.experiences.map((e) => {
-      const match = (workExpData.work_experience_generated || []).find(
-        (g) => g.experience_id === e.experience_id
+      const match = (workExpData.work_experience_generated || []).find((g) =>
+        e.experience_id ? g.experience_id === e.experience_id
+          : g.company_name?.toLowerCase() === e.company_name?.toLowerCase() &&
+            g.job_title?.toLowerCase() === e.job_title?.toLowerCase()
       );
       return {
         ...e,
