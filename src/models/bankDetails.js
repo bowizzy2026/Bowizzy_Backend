@@ -14,7 +14,7 @@ class BankDetails extends Model {
   }
 
   static get relationMappings() {
-    const User = require("./user");
+    const User = require("./User");
     return {
       user: {
         relation: Model.BelongsToOneRelation,
