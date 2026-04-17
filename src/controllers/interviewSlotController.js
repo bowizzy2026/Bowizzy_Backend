@@ -583,5 +583,36 @@ exports.cancel = async (req, res) => {
   }
 };
 
+exports.remove = async (req, res) => {
+  try {
+    const user_id = req.user.user_id;
+    const { id } = req.params;
+
+    const slot = await InterviewSlot.query().findOne({
+      candidate_id: user_id,
+      interview_slot_id: id
+    });
+
+    if (!slot) {
+      return res.status(404).json({ message: "Interview slot not found" });
+    }
+
+    const status = String(slot.interview_status);
+    if (status === 'confirmed') {
+      return res.status(400).json({ message: "Cannot delete a confirmed interview slot" });
+    }
+
+    await InterviewSlot.query()
+      .where({ interview_slot_id: id, candidate_id: user_id })
+      .delete();
+
+    return res.status(200).json({ message: "Interview slot deleted successfully" });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Error deleting interview slot" });
+  }
+};
+
 
 

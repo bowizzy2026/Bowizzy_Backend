@@ -10,6 +10,7 @@ router.get("/users/mock-interview/interview-slot", auth, controller.getAll);
 router.get("/users/:user_id/mock-interview/interview-slot", auth, controller.getByUser);
 router.get("/users/:user_id/mock-interview/interview-slot/:id", auth, controller.getById);
 router.put("/users/:user_id/mock-interview/interview-slot/:id", auth, controller.cancel);
+router.delete("/users/:user_id/mock-interview/interview-slot/:id", auth, controller.remove);
 
 router.get("/users/:user_id/mock-interview/is-interviewer", auth, controller.isInterviewer);
 
