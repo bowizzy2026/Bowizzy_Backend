@@ -1,16 +1,6 @@
-const OpenAI = require("openai");
-const apiKeys = [ process.env.OPENAI_API_KEY_1, 
-                  process.env.OPENAI_API_KEY_2, 
-                  process.env.OPENAI_API_KEY_3, 
-                  process.env.OPENAI_API_KEY_4, 
-                  process.env.OPENAI_API_KEY_5, 
-                  process.env.OPENAI_API_KEY_6, 
-                  process.env.OPENAI_API_KEY_7, 
-                  process.env.OPENAI_API_KEY_8, 
-                  process.env.OPENAI_API_KEY_9, 
-                  process.env.OPENAI_API_KEY_10 ]
-let currentKeyIndex = 0;
-let client = new OpenAI({ apiKey: apiKeys[currentKeyIndex] });
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const apiKey = process.env.GEMINI_API_KEY;
+let genAI = new GoogleGenerativeAI(apiKey);
 
 async function extractResumeUsingAI(text) {
 
@@ -138,32 +128,23 @@ Return JSON EXACTLY in this structure:
     }
   ]
 }`;
-  while(true){
-    try{
-    const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "Return ONLY valid JSON without code blocks." },
-        { role: "user", content: prompt }
-      ]
-    });
+  while (true) {
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
 
-    let content = response.choices[0].message.content
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+      let content = response.text()
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
 
-    return JSON.parse(content);
-    
-    }catch(err){
-      if(currentKeyIndex < apiKeys.length - 1){
-        currentKeyIndex++;
-        client = new OpenAI({ apiKey: apiKeys[currentKeyIndex] });
-      }
-      else{
-        console.error("All API keys failed.");
-        throw new Error("AI extraction failed: all API keys exhausted");
-      }
+      return JSON.parse(content);
+
+    } catch (err) {
+      console.log(`Error `, err);
+      console.error("AI extraction failed.");
+      throw new Error("AI extraction failed: " + err.message);
     }
   }
 }

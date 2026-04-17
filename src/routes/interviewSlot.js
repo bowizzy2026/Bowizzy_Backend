@@ -11,6 +11,7 @@ router.get("/users/:user_id/mock-interview/interview-slot", auth, controller.get
 router.get("/users/:user_id/mock-interview/interview-slot/:id", auth, controller.getById);
 router.put("/users/:user_id/mock-interview/interview-slot/:id", auth, controller.cancel);
 
+router.get("/users/:user_id/mock-interview/is-interviewer", auth, controller.isInterviewer);
 
 router.get("/users/:user_id/create-meet", auth, controller.createMeet)
 

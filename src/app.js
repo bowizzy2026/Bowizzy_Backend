@@ -81,99 +81,99 @@ app.get("/", (req, res) => {
   res.send("Node backend is working!");
 });
 
-app.get("/test", async (req, res) => {
-  try {
-    const { google } = require("googleapis");
-    const fs = require("fs");
-    const path = require("path");
+// app.get("/test", async (req, res) => {
+//   try {
+//     const { google } = require("googleapis");
+//     const fs = require("fs");
+//     const path = require("path");
 
-    const IMPERSONATE_USER = "contactus@wizzybox.com";
+//     const IMPERSONATE_USER = "contactus@wizzybox.com";
 
-    const serviceAccountPath = path.join(
-      __dirname,
-      "..",
-      "bowizzy-ai-assistant-84d029637a02.json"
-    );
-    const serviceAccount = JSON.parse(
-      fs.readFileSync(serviceAccountPath, "utf8")
-    );
+//     const serviceAccountPath = path.join(
+//       __dirname,
+//       "..",
+//       "bowizzy-ai-assistant-84d029637a02.json"
+//     );
+//     const serviceAccount = JSON.parse(
+//       fs.readFileSync(serviceAccountPath, "utf8")
+//     );
 
-    const auth = new google.auth.JWT({
-      email: serviceAccount.client_email,
-      key: serviceAccount.private_key,
-      scopes: [
-        "https://www.googleapis.com/auth/calendar",
-        "https://www.googleapis.com/auth/meetings.space.created",
-      ],
-      subject: IMPERSONATE_USER,
-    });
+//     const auth = new google.auth.JWT({
+//       email: serviceAccount.client_email,
+//       key: serviceAccount.private_key,
+//       scopes: [
+//         "https://www.googleapis.com/auth/calendar",
+//         "https://www.googleapis.com/auth/meetings.space.created",
+//       ],
+//       subject: IMPERSONATE_USER,
+//     });
 
-    const calendar = google.calendar({ version: "v3", auth });
-    const meet = google.meet({ version: "v2", auth });
+//     const calendar = google.calendar({ version: "v3", auth });
+//     const meet = google.meet({ version: "v2", auth });
 
-    const now = new Date();
-    const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0, 0).toISOString();
-    const endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 30, 0, 0).toISOString();
+//     const now = new Date();
+//     const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0, 0).toISOString();
+//     const endTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 30, 0, 0).toISOString();
 
-    const meetSpace = await meet.spaces.create({
-      requestBody: {},
-    });
+//     const meetSpace = await meet.spaces.create({
+//       requestBody: {},
+//     });
 
-    const meetUri = meetSpace.data.meetingUri;
+//     const meetUri = meetSpace.data.meetingUri;
 
-    const eventBody = {
-      summary: "Google Meet - Bowizzy Interview",
-      description: "Interview scheduled via Bowizzy",
-      start: {
-        dateTime: startTime,
-        timeZone: "Asia/Kolkata",
-      },
-      end: {
-        dateTime: endTime,
-        timeZone: "Asia/Kolkata",
-      },
-      conferenceData: {
-        entryPoints: [
-          {
-            entryPointType: "video",
-            uri: meetUri,
-            label: "Google Meet",
-          },
-        ],
-        conferenceSolution: {
-          key: {
-            type: "hangoutsMeet",
-          },
-          name: "Google Meet",
-        },
-      },
-    };
+//     const eventBody = {
+//       summary: "Google Meet - Bowizzy Interview",
+//       description: "Interview scheduled via Bowizzy",
+//       start: {
+//         dateTime: startTime,
+//         timeZone: "Asia/Kolkata",
+//       },
+//       end: {
+//         dateTime: endTime,
+//         timeZone: "Asia/Kolkata",
+//       },
+//       conferenceData: {
+//         entryPoints: [
+//           {
+//             entryPointType: "video",
+//             uri: meetUri,
+//             label: "Google Meet",
+//           },
+//         ],
+//         conferenceSolution: {
+//           key: {
+//             type: "hangoutsMeet",
+//           },
+//           name: "Google Meet",
+//         },
+//       },
+//     };
 
-    const event = await calendar.events.insert({
-      calendarId: IMPERSONATE_USER,
-      conferenceDataVersion: 1,
-      resource: eventBody,
-    });
+//     const event = await calendar.events.insert({
+//       calendarId: IMPERSONATE_USER,
+//       conferenceDataVersion: 1,
+//       resource: eventBody,
+//     });
 
-    res.json({
-      message: "Google Meet scheduled successfully",
-      eventId: event.data.id,
-      eventSummary: event.data.summary,
-      startTime: event.data.start.dateTime,
-      endTime: event.data.end.dateTime,
-      meetLink: meetUri,
-      calendarLink: event.data.htmlLink,
-    });
-  } catch (error) {
-    console.error("Error scheduling Google Meet:", error.message);
-    console.error("Full error:", error);
-    res.status(500).json({
-      error: "Failed to schedule Google Meet",
-      message: error.message,
-      details: error.errors ? error.errors[0]?.message : null,
-    });
-  }
-});
+//     res.json({
+//       message: "Google Meet scheduled successfully",
+//       eventId: event.data.id,
+//       eventSummary: event.data.summary,
+//       startTime: event.data.start.dateTime,
+//       endTime: event.data.end.dateTime,
+//       meetLink: meetUri,
+//       calendarLink: event.data.htmlLink,
+//     });
+//   } catch (error) {
+//     console.error("Error scheduling Google Meet:", error.message);
+//     console.error("Full error:", error);
+//     res.status(500).json({
+//       error: "Failed to schedule Google Meet",
+//       message: error.message,
+//       details: error.errors ? error.errors[0]?.message : null,
+//     });
+//   }
+// });
 
 db.raw("SELECT 1")
   .then(() => {

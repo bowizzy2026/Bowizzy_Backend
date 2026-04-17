@@ -1,6 +1,7 @@
 // controllers/interviewSlotController.js
 const InterviewSlot = require("../models/interviewSlot");
 const UserCredits = require("../models/UserCredits");
+const User = require("../models/User");
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
@@ -60,6 +61,28 @@ exports.createMeet = async (req, res) => {
     return res.status(500).json({ message: "Error creating Google Calendar event" });
   }
 }
+
+exports.isInterviewer = async (req, res) => {
+  try {
+    const user_id = req.user && req.user.user_id;
+
+    if (!user_id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const user = await User.query()
+      .select("is_verified")
+      .findById(user_id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.status(200).json(Boolean(user.is_verified));
+  } catch (err) {
+    return res.status(500).json({ message: "Error checking interviewer status" });
+  }
+};
 // statuses considered blocking
 const ACTIVE_STATUSES = ['open', 'confirmed'];
 

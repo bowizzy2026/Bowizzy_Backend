@@ -229,11 +229,29 @@ exports.getById = async (req, res) => {
       }
     }
 
-    // Return schedule with meeting_link + slot data + candidate
+    // Step 4: Get interviewer info
+    let interviewerInfo = null;
+    if (schedule.interviewer_id) {
+      const interviewer = await User.query()
+        .select('user_id', 'first_name', 'last_name', 'email')
+        .findById(schedule.interviewer_id);
+
+      if (interviewer) {
+        interviewerInfo = {
+          user_id: interviewer.user_id,
+          first_name: interviewer.first_name,
+          last_name: interviewer.last_name,
+          email: interviewer.email
+        };
+      }
+    }
+
+    // Return schedule with meeting_link + slot data + candidate + interviewer
     return res.status(200).json({
       ...schedule,
       interview_slot: interviewSlot,
-      candidate: candidateInfo
+      candidate: candidateInfo,
+      interviewer: interviewerInfo
     });
 
   } catch(err) {
@@ -322,17 +340,24 @@ exports.getByUser = async (req, res) => {
 
     const slotIds = Array.from(new Set(list.map(s => s.interview_slot_id).filter(Boolean)));
     const scheduleIds = list.map(s => s.interview_schedule_id);
+    const candidateIds = Array.from(new Set(list.map(s => s.candidate_id).filter(Boolean)));
 
     const slots = slotIds.length > 0 ? await InterviewSlot.query()
       .whereIn('interview_slot_id', slotIds)
-      .select('interview_slot_id', 'interview_code', 'job_role', 'experience') : [];
+      .select('interview_slot_id', 'interview_code', 'job_role', 'experience', 'skills', 'resume_url') : [];
 
     const slotsById = slots.reduce((acc, sl) => { acc[sl.interview_slot_id] = sl; return acc; }, {});
 
+    // Fetch candidate names in one query
+    const candidates = candidateIds.length > 0 ? await User.query()
+      .whereIn('user_id', candidateIds)
+      .select('user_id', 'first_name', 'last_name') : [];
+
+    const candidateMap = candidates.reduce((acc, c) => { acc[c.user_id] = c; return acc; }, {});
+
     // Fetch candidate reviews by interview_schedule_id
     const candidateReviews = scheduleIds.length > 0 ? await CandidateReview.query()
-      .whereIn('interview_schedule_id', scheduleIds)
-      .select('interview_schedule_id') : [];
+      .whereIn('interview_schedule_id', scheduleIds) : [];
 
     // Fetch interviewer reviews by interview_schedule_id
     const interviewerReviews = scheduleIds.length > 0 ? await InterviewerReview.query()
@@ -340,11 +365,11 @@ exports.getByUser = async (req, res) => {
       .select('interview_schedule_id') : [];
 
     // Create maps for quick lookup
-    const candidateFeedbackMap = {};
+    const candidateReviewMap = {};
     const interviewerFeedbackMap = {};
 
     candidateReviews.forEach(cr => {
-      candidateFeedbackMap[cr.interview_schedule_id] = true;
+      candidateReviewMap[cr.interview_schedule_id] = cr;
     });
 
     interviewerReviews.forEach(ir => {
@@ -356,7 +381,13 @@ exports.getByUser = async (req, res) => {
       interview_code: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].interview_code : null,
       job_role: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].job_role : null,
       experience: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].experience : null,
-      candidateFeedbackProvided: candidateFeedbackMap[s.interview_schedule_id] || false,
+      skills: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].skills : null,
+      resume_url: slotsById[s.interview_slot_id] ? slotsById[s.interview_slot_id].resume_url : null,
+      candidate_name: candidateMap[s.candidate_id]
+        ? `${candidateMap[s.candidate_id].first_name || ''} ${candidateMap[s.candidate_id].last_name || ''}`.trim()
+        : null,
+      candidate_review: candidateReviewMap[s.interview_schedule_id] || null,
+      candidateFeedbackProvided: !!candidateReviewMap[s.interview_schedule_id],
       interviewerFeedbackProvided: interviewerFeedbackMap[s.interview_schedule_id] || false
     }));
 
