@@ -4,6 +4,7 @@ const AiChat = require("../models/AiChat");
 // Create a new AI session
 exports.createSession = async (req, res) => {
   try {
+    const user_id = req.user && req.user.user_id;
     const { session_name, mode } = req.body;
 
     // Validation
@@ -17,7 +18,8 @@ exports.createSession = async (req, res) => {
 
     const session = await AiSession.query().insert({
       session_name,
-      mode
+      mode,
+      user_id
     });
 
     return res.status(201).json({
@@ -27,6 +29,23 @@ exports.createSession = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Error creating AI session" });
+  }
+};
+
+// Get all sessions by user ID
+exports.getSessionsByUser = async (req, res) => {
+  try {
+    // const user_id = req.params.user_id;
+    const user_id = req.user && req.user.user_id;
+    const sessions = await AiSession.query()
+      .where({ user_id })
+      .withGraphFetched("chats")
+      .orderBy("created_at", "desc");
+
+    return res.json(sessions);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error fetching sessions by user" });
   }
 };
 
@@ -53,7 +72,10 @@ exports.getSessionById = async (req, res) => {
 // Get all sessions
 exports.getAllSessions = async (req, res) => {
   try {
-    const sessions = await AiSession.query().withGraphFetched("chats");
+    const user_id = req.user && req.user.user_id;
+    const sessions = await AiSession.query()
+      .where({ user_id })
+      .withGraphFetched("chats");
 
     return res.json(sessions);
   } catch (err) {

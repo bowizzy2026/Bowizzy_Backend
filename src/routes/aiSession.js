@@ -9,6 +9,9 @@ router.post("/sessions", auth, controller.createSession);
 // Get all sessions
 router.get("/sessions", auth, controller.getAllSessions);
 
+// Get sessions by user ID
+router.get("/user/sessions", auth, controller.getSessionsByUser);
+
 // Get session by ID
 router.get("/sessions/:session_id", auth, controller.getSessionById);
 
