@@ -8,7 +8,7 @@ const TechnicalSummary = require("../models/TechnicalSummary");
 const Education = require("../models/Education");
 const AiSession = require("../models/AiSession");
 
-const GROQ_API_KEY = "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";
+const GROQ_API_KEY = "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";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
