@@ -8,7 +8,7 @@ const TechnicalSummary = require("../models/TechnicalSummary");
 const Education = require("../models/Education");
 const AiSession = require("../models/AiSession");
 
-const GROQ_API_KEY = "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";
+const GROQ_API_KEY = "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";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
@@ -46,7 +46,8 @@ function parseGroqJSON(raw) {
   return JSON.parse(cleaned);
 }
 
-// ── Context builder ───────────────────────────────────────────────────────────
+// ── Slim context builder (only what Groq needs) ───────────────────────────────
+// Uses only the already-filtered resumeData + clean chat_answers (no [Retained]/[Removed] noise)
 
 function buildContext(resumeData, chatAnswers) {
   const { personal_details, projects, work_experience, certificates, education, technical_summary } = resumeData;
@@ -57,7 +58,8 @@ function buildContext(resumeData, chatAnswers) {
   lines.push(`Name: ${[pd.first_name, pd.middle_name, pd.last_name].filter(Boolean).join(" ")}`);
   if (pd.email) lines.push(`Email: ${pd.email}`);
   if (pd.mobile_number) lines.push(`Phone: ${pd.mobile_number}`);
-  if (pd.city || pd.state || pd.country) lines.push(`Location: ${[pd.city, pd.state, pd.country].filter(Boolean).join(", ")}`);
+  if (pd.city || pd.state || pd.country)
+    lines.push(`Location: ${[pd.city, pd.state, pd.country].filter(Boolean).join(", ")}`);
   if (pd.linkedin_url) lines.push(`LinkedIn: ${pd.linkedin_url}`);
   if (pd.about) lines.push(`About: ${pd.about}`);
   if (pd.languages_known?.length) lines.push(`Languages: ${pd.languages_known.join(", ")}`);
@@ -73,8 +75,8 @@ function buildContext(resumeData, chatAnswers) {
   if (projects?.length) {
     lines.push("\n=== PROJECTS ===");
     projects.forEach((p, i) => {
-      lines.push(`Project ${i + 1}: ${p.project_title} (${p.project_type})`);
-      lines.push(`  Duration: ${p.start_date} to ${p.currently_working ? "Present" : p.end_date}`);
+      lines.push(`Project ${i + 1}: ${p.project_title} (${p.project_type || "N/A"})`);
+      lines.push(`  Duration: ${p.start_date || "N/A"} to ${p.currently_working ? "Present" : (p.end_date || "N/A")}`);
       if (p.description) lines.push(`  Description: ${p.description.replace(/<[^>]+>/g, "")}`);
       if (p.roles_responsibilities) lines.push(`  Roles & Responsibilities: ${p.roles_responsibilities.replace(/<[^>]+>/g, "")}`);
     });
@@ -124,24 +126,47 @@ function buildContext(resumeData, chatAnswers) {
 /**
  * POST /generate-resume
  *
- * Body (all optional):
+ * Body:
  * {
+ *   "session_id": 28,
  *   "chat_answers": {
  *     "about_yourself": "...",
- *     "additional_projects": "...",
- *     "additional_experience": "...",
- *     "additional_education": "..."
- *   }
+ *     "additional_projects": "...",   // purely NEW items typed by user — no DB item names
+ *     "additional_experience": "...", // purely NEW items typed by user
+ *     "additional_education": "..."   // purely NEW items typed by user
+ *   },
+ *   "retained_project_ids": [2],       // DB project IDs the user kept (deleted ones are absent)
+ *   "retained_experience_ids": [1, 2], // DB experience IDs the user kept
+ *   "retained_education_ids": [1, 2, 3]// DB education IDs the user kept
  * }
  *
- * - Parses chat_answers via Groq into structured records (in-memory only, no DB insert)
- * - Generates technical summary, enhanced descriptions for all projects & experiences
- * - Returns full resume-data shape with AI-generated fields merged in
+ * Flow:
+ *  1. Fetch all records from DB
+ *  2. Filter to only retained IDs (what user didn't delete)
+ *  3. Parse chat_answers for brand-new items via Groq
+ *  4. Merge retained DB records + new parsed records
+ *  5. Run Groq enhancement on the merged set
+ *  6. Return slim payload: projects (id, title, enhanced_description), experiences (enhanced_description), technical_summary_generated
  */
 exports.generateResume = async (req, res) => {
   try {
     const user_id = req.user.user_id;
-    const { chat_answers = {}, session_id } = req.body;
+    const {
+      chat_answers = {},
+      session_id,
+      retained_project_ids,
+      retained_experience_ids,
+      retained_education_ids,
+    } = req.body;
+
+    // Normalise retained ID arrays — if not sent, treat as "keep all"
+    const keepAllProjects    = !Array.isArray(retained_project_ids);
+    const keepAllExperiences = !Array.isArray(retained_experience_ids);
+    const keepAllEducation   = !Array.isArray(retained_education_ids);
+
+    const retainedProjectSet    = new Set((retained_project_ids    || []).map(Number));
+    const retainedExperienceSet = new Set((retained_experience_ids || []).map(Number));
+    const retainedEducationSet  = new Set((retained_education_ids  || []).map(Number));
 
     // ── 1. Fetch all existing resume data in parallel ─────────────────────────
     const [
@@ -167,29 +192,34 @@ exports.generateResume = async (req, res) => {
     const getValue = (result, fallback = null) =>
       result.status === "fulfilled" ? result.value ?? fallback : fallback;
 
-    const resumeData = {
-      personal_details: getValue(personalDetails),
-      projects: getValue(projects, []),
-      work_experience: {
-        job_role: getValue(jobRole)?.job_role ?? null,
-        experiences: getValue(workExperiences, []),
-      },
-      certificates: getValue(certificates, []),
-      links: getValue(links, []),
-      technical_summary: getValue(technicalSummary),
-      education: getValue(education, []),
-    };
+    const allProjects     = getValue(projects, []);
+    const allExperiences  = getValue(workExperiences, []);
+    const allEducation    = getValue(education, []);
 
-    // ── 2. Parse chat_answers into structured DB records via Groq ─────────────
-    // Only run if the user mentioned additional items
+    // ── 2. Filter to only retained records ───────────────────────────────────
+    const retainedProjects = keepAllProjects
+      ? allProjects
+      : allProjects.filter((p) => retainedProjectSet.has(p.project_id));
+
+    const retainedExperiences = keepAllExperiences
+      ? allExperiences
+      : allExperiences.filter((e) => retainedExperienceSet.has(e.experience_id));
+
+    const retainedEducation = keepAllEducation
+      ? allEducation
+      : allEducation.filter((e) => retainedEducationSet.has(e.education_id));
+
+    // ── 3. Parse chat_answers for brand-new items via Groq ────────────────────
+    // chat_answers fields must contain ONLY free-form text about new items
+    // (the frontend must NOT include retained DB item names in these fields)
     const hasAdditional =
       chat_answers.additional_projects ||
       chat_answers.additional_experience ||
       chat_answers.additional_education;
 
-    let newlyInsertedProjects = [];
-    let newlyInsertedExperiences = [];
-    let newlyInsertedEducation = [];
+    let newProjects     = [];
+    let newExperiences  = [];
+    let newEducation    = [];
 
     if (hasAdditional) {
       const parseSystemPrompt = `You are a data extraction assistant.
@@ -258,21 +288,30 @@ Only include entries where the user actually mentioned something. Return empty a
         console.error("Failed to parse additional data from Groq:", err);
       }
 
-      // Collect parsed records (no DB insert — returned in response only)
-      newlyInsertedProjects = (parsed.new_projects || []).filter((p) => p.project_title);
-      newlyInsertedExperiences = (parsed.new_experiences || []).filter((e) => e.company_name || e.job_title);
-      newlyInsertedEducation = (parsed.new_education || []).filter((e) => e.institution_name || e.education_type);
-
-      // Merge into resumeData so Groq enhancement has full context
-      resumeData.projects = [...resumeData.projects, ...newlyInsertedProjects];
-      resumeData.work_experience.experiences = [
-        ...resumeData.work_experience.experiences,
-        ...newlyInsertedExperiences,
-      ];
-      resumeData.education = [...resumeData.education, ...newlyInsertedEducation];
+      newProjects    = (parsed.new_projects    || []).filter((p) => p.project_title);
+      newExperiences = (parsed.new_experiences || []).filter((e) => e.company_name || e.job_title);
+      newEducation   = (parsed.new_education   || []).filter((e) => e.institution_name || e.education_type);
     }
 
-    // ── 3. Build shared context string (now includes newly inserted records) ──
+    // ── 4. Merge retained DB records + newly parsed records ───────────────────
+    const mergedProjects     = [...retainedProjects,     ...newProjects];
+    const mergedExperiences  = [...retainedExperiences,  ...newExperiences];
+    const mergedEducation    = [...retainedEducation,    ...newEducation];
+
+    const resumeData = {
+      personal_details: getValue(personalDetails),
+      projects: mergedProjects,
+      work_experience: {
+        job_role: getValue(jobRole)?.job_role ?? null,
+        experiences: mergedExperiences,
+      },
+      certificates: getValue(certificates, []),
+      links: getValue(links, []),
+      technical_summary: getValue(technicalSummary),
+      education: mergedEducation,
+    };
+
+    // ── 5. Build context string for Groq ──────────────────────────────────────
     const context = buildContext(resumeData, chat_answers);
 
     const systemPrompt = `You are an expert resume writer and career coach.
@@ -280,25 +319,26 @@ Your task is to enhance resume content based on the candidate's information.
 Always respond with valid JSON only — no markdown, no explanation, no extra text.
 Write professionally, concisely, and in first person where appropriate.`;
 
-    // ── 4. Define all 4 Groq enhancement prompts ─────────────────────────────
-
+    // ── 6. Run Groq enhancement: technical summary + projects + work exp ──────
     const technicalSummaryPrompt = `Based on the following candidate information, write a compelling technical summary in a single paragraph (4-6 sentences).
 It should highlight their key skills, experience level, domain expertise, and career objective.
-Respond with JSON in this exact format: { "technical_summary_generated": "your paragraph here" }
+Respond with JSON: { "technical_summary_generated": "your paragraph here" }
 
 CANDIDATE INFO:
 ${context}`;
 
     const projectsPrompt = `Based on the following candidate information, enhance the description for each project into professional bullet points (3-5 bullets per project).
-Each bullet should start with a strong action verb and highlight impact and technologies used.
-Include ALL projects listed in the candidate info.
+Each bullet must start with a strong action verb and highlight impact and technologies used.
+Include ALL projects listed under === PROJECTS ===.
+For each project, also provide 2-3 bullet points for roles_responsibilities.
 Respond with JSON in this exact format:
 {
   "projects_generated": [
     {
-      "project_id": <number>,
+      "project_id": <number or null for new projects>,
       "project_title": "<title>",
-      "enhanced_description": ["bullet 1", "bullet 2", "bullet 3"]
+      "enhanced_description": ["bullet 1", "bullet 2", "bullet 3"],
+      "roles_responsibilities": ["bullet 1", "bullet 2"]
     }
   ]
 }
@@ -307,13 +347,13 @@ CANDIDATE INFO:
 ${context}`;
 
     const workExpPrompt = `Based on the following candidate information, enhance the description for each work experience into professional bullet points (3-5 bullets per experience).
-Each bullet should start with a strong action verb and highlight responsibilities, achievements, and technologies.
-Include ALL experiences listed in the candidate info.
+Each bullet must start with a strong action verb and highlight responsibilities, achievements, and technologies.
+Include ALL experiences listed under === WORK EXPERIENCE ===.
 Respond with JSON in this exact format:
 {
   "work_experience_generated": [
     {
-      "experience_id": <number>,
+      "experience_id": <number or null for new experiences>,
       "job_title": "<title>",
       "company_name": "<company>",
       "enhanced_description": ["bullet 1", "bullet 2", "bullet 3"]
@@ -324,24 +364,11 @@ Respond with JSON in this exact format:
 CANDIDATE INFO:
 ${context}`;
 
-    const enhancedSummaryPrompt = `Based on the following candidate information, write an enhanced and more detailed technical summary in a single paragraph (5-7 sentences).
-This should be more comprehensive — include specific technologies, domains, soft skills, and career trajectory.
-Respond with JSON in this exact format: { "enhanced_technical_summary": "your paragraph here" }
-
-CANDIDATE INFO:
-${context}`;
-
-    // ── 5. Fire all 4 Groq enhancement calls in parallel ──────────────────────
-    const [
-      technicalSummaryResult,
-      projectsResult,
-      workExpResult,
-      enhancedSummaryResult,
-    ] = await Promise.allSettled([
+    // Fire all 3 in parallel
+    const [summaryResult, projectsResult, workExpResult] = await Promise.allSettled([
       callGroq(systemPrompt, technicalSummaryPrompt),
       callGroq(systemPrompt, projectsPrompt),
       callGroq(systemPrompt, workExpPrompt),
-      callGroq(systemPrompt, enhancedSummaryPrompt),
     ]);
 
     const safeparse = (result, fallback, label) => {
@@ -357,69 +384,93 @@ ${context}`;
       }
     };
 
-    const summaryData  = safeparse(technicalSummaryResult, { technical_summary_generated: null }, "technicalSummary");
-    const projectsData = safeparse(projectsResult,         { projects_generated: [] },            "projects");
-    const workExpData  = safeparse(workExpResult,           { work_experience_generated: [] },     "workExp");
-    const enhancedData = safeparse(enhancedSummaryResult,  { enhanced_technical_summary: null },  "enhancedSummary");
+    const summaryData  = safeparse(summaryResult,  { technical_summary_generated: null }, "summary");
+    const projectsData = safeparse(projectsResult, { projects_generated: [] },            "projects");
+    const workExpData  = safeparse(workExpResult,  { work_experience_generated: [] },     "workExp");
 
-    // ── 6. Merge enhanced_description onto every project (existing + new) ─────
-    const projectsWithGenerated = resumeData.projects.map((p) => {
+    // ── 7. Build slim response — only what the frontend needs ─────────────────
+
+    // Projects: id, title, enhanced_description, roles_responsibilities
+    const projectsOut = mergedProjects.map((p) => {
       const match = (projectsData.projects_generated || []).find((g) =>
-        p.project_id ? g.project_id === p.project_id : g.project_title?.toLowerCase() === p.project_title?.toLowerCase()
+        p.project_id
+          ? g.project_id === p.project_id
+          : g.project_title?.toLowerCase() === p.project_title?.toLowerCase()
       );
       return {
-        ...p,
-        enhanced_description: match?.enhanced_description ?? null,
+        project_id:             p.project_id      ?? null,
+        project_title:          p.project_title,
+        start_date:             p.start_date       ?? null,
+        end_date:               p.end_date         ?? null,
+        currently_working:      p.currently_working ?? false,
+        enhanced_description:   match?.enhanced_description   ?? [],
+        roles_responsibilities: match?.roles_responsibilities ?? [],
       };
     });
 
-    // ── 7. Merge enhanced_description onto every experience (existing + new) ──
-    const experiencesWithGenerated = resumeData.work_experience.experiences.map((e) => {
+    // Experiences: experience_id, job_title, company_name, enhanced_description
+    const experiencesOut = mergedExperiences.map((e) => {
       const match = (workExpData.work_experience_generated || []).find((g) =>
-        e.experience_id ? g.experience_id === e.experience_id
+        e.experience_id
+          ? g.experience_id === e.experience_id
           : g.company_name?.toLowerCase() === e.company_name?.toLowerCase() &&
-            g.job_title?.toLowerCase() === e.job_title?.toLowerCase()
+            g.job_title?.toLowerCase()    === e.job_title?.toLowerCase()
       );
       return {
-        ...e,
-        enhanced_description: match?.enhanced_description ?? null,
+        experience_id:          e.experience_id        ?? null,
+        job_title:              e.job_title,
+        company_name:           e.company_name,
+        employment_type:        e.employment_type       ?? null,
+        location:               e.location              ?? null,
+        work_mode:              e.work_mode             ?? null,
+        start_date:             e.start_date            ?? null,
+        end_date:               e.end_date              ?? null,
+        currently_working_here: e.currently_working_here ?? false,
+        enhanced_description:   match?.enhanced_description ?? [],
       };
     });
 
-    // ── 8. Build final payload ────────────────────────────────────────────────
+    // ── 8. Assemble final payload ─────────────────────────────────────────────
+    // Education out — retained DB records + newly parsed, slim fields only
+    const educationOut = mergedEducation.map((e) => ({
+      education_id:       e.education_id       ?? null,
+      education_type:     e.education_type     ?? null,
+      institution_name:   e.institution_name   ?? null,
+      degree:             e.degree             ?? null,
+      field_of_study:     e.field_of_study     ?? null,
+      university_name:    e.university_name    ?? null,
+      start_year:         e.start_year         ?? null,
+      end_year:           e.end_year           ?? null,
+      currently_pursuing: e.currently_pursuing ?? false,
+      result_format:      e.result_format      ?? null,
+      result:             e.result             ?? null,
+    }));
+
     const finalPayload = {
-      personal_details: resumeData.personal_details,
-      projects: projectsWithGenerated,
-      work_experience: {
-        job_role: resumeData.work_experience.job_role,
-        experiences: experiencesWithGenerated,
-      },
-      certificates: resumeData.certificates,
-      links: resumeData.links,
-      technical_summary: resumeData.technical_summary,
-      education: resumeData.education,
+      personal_details:            resumeData.personal_details,
       technical_summary_generated: summaryData.technical_summary_generated ?? null,
-      enhanced_technical_summary: enhancedData.enhanced_technical_summary ?? null,
+      projects: projectsOut,
+      work_experience: {
+        experiences: experiencesOut,
+      },
+      education: educationOut,
     };
 
-    // ── 9. Save full generated data to AiSession.infoJson (no other DB writes) ─
+    // ── 9. Save to AiSession.infoJson ─────────────────────────────────────────
     if (session_id) {
       try {
         const session = await AiSession.query().findById(session_id);
         if (session) {
-          await AiSession.query().findById(session_id).patch({
-            infoJson: finalPayload,
-          });
+          await AiSession.query().findById(session_id).patch({ infoJson: finalPayload });
         }
       } catch (err) {
         console.error("Failed to save infoJson to session:", err);
-        // Non-fatal — still return the response even if session save fails
       }
     }
 
-    // ── 10. Return final merged response ─────────────────────────────────────
+    // ── 10. Return slim response ──────────────────────────────────────────────
     return res.json({
-      message: "Resume data retrieved successfully",
+      message: "Resume generated successfully",
       data: finalPayload,
     });
   } catch (err) {
