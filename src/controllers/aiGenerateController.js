@@ -7,6 +7,7 @@ const Link = require("../models/Link");
 const TechnicalSummary = require("../models/TechnicalSummary");
 const Education = require("../models/Education");
 const AiSession = require("../models/AiSession");
+const Skill = require("../models/Skill");
 
 const GROQ_API_KEY = "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";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -49,7 +50,7 @@ function parseGroqJSON(raw) {
 // ── Slim context builder ──────────────────────────────────────────────────────
 
 function buildContext(resumeData, chatAnswers) {
-  const { personal_details, projects, work_experience, certificates, education, technical_summary } = resumeData;
+  const { personal_details, projects, work_experience, certificates, education, technical_summary, skills, links } = resumeData;
   const pd = personal_details || {};
   const lines = [];
 
@@ -65,10 +66,13 @@ function buildContext(resumeData, chatAnswers) {
 
   if (chatAnswers && Object.keys(chatAnswers).length > 0) {
     lines.push("\n=== USER-PROVIDED INFORMATION (from chat) ===");
-    if (chatAnswers.about_yourself) lines.push(`About Yourself: ${chatAnswers.about_yourself}`);
-    if (chatAnswers.additional_projects) lines.push(`Additional Projects Mentioned: ${chatAnswers.additional_projects}`);
-    if (chatAnswers.additional_experience) lines.push(`Additional Experience Mentioned: ${chatAnswers.additional_experience}`);
-    if (chatAnswers.additional_education) lines.push(`Additional Education/Certifications Mentioned: ${chatAnswers.additional_education}`);
+    if (chatAnswers.about_yourself)          lines.push(`About Yourself: ${chatAnswers.about_yourself}`);
+    if (chatAnswers.additional_projects)     lines.push(`Additional Projects Mentioned: ${chatAnswers.additional_projects}`);
+    if (chatAnswers.additional_experience)   lines.push(`Additional Experience Mentioned: ${chatAnswers.additional_experience}`);
+    if (chatAnswers.additional_education)    lines.push(`Additional Education/Certifications Mentioned: ${chatAnswers.additional_education}`);
+    if (chatAnswers.additional_skills)       lines.push(`Additional Skills Mentioned: ${chatAnswers.additional_skills}`);
+    if (chatAnswers.additional_links)        lines.push(`Additional Links Mentioned: ${chatAnswers.additional_links}`);
+    if (chatAnswers.additional_certificates) lines.push(`Additional Certificates Mentioned: ${chatAnswers.additional_certificates}`);
   }
 
   if (projects?.length) {
@@ -112,6 +116,20 @@ function buildContext(resumeData, chatAnswers) {
     });
   }
 
+  if (skills?.length) {
+    lines.push("\n=== SKILLS ===");
+    skills.forEach((s) => {
+      lines.push(`- ${s.skill_name} (${s.skill_level || "N/A"})`);
+    });
+  }
+
+  if (links?.length) {
+    lines.push("\n=== LINKS ===");
+    links.forEach((l) => {
+      lines.push(`- ${l.link_type}: ${l.url}`);
+    });
+  }
+
   if (technical_summary?.summary) {
     const rawSummary = technical_summary.summary.replace(/<[^>]+>/g, "").trim();
     if (rawSummary) {
@@ -134,15 +152,25 @@ exports.generateResume = async (req, res) => {
       retained_project_ids,
       retained_experience_ids,
       retained_education_ids,
+      retained_skill_ids,
+      retained_link_ids,
+      retained_certificate_ids,
     } = req.body;
 
-    const keepAllProjects    = retained_project_ids    == null;
-    const keepAllExperiences = retained_experience_ids == null;
-    const keepAllEducation   = retained_education_ids  == null;
+    // ── keepAll flags ─────────────────────────────────────────────────────────
+    const keepAllProjects     = retained_project_ids     == null;
+    const keepAllExperiences  = retained_experience_ids  == null;
+    const keepAllEducation    = retained_education_ids   == null;
+    const keepAllSkills       = retained_skill_ids       == null;
+    const keepAllLinks        = retained_link_ids        == null;
+    const keepAllCertificates = retained_certificate_ids == null;
 
-    const retainedProjectSet    = new Set((retained_project_ids    || []).map(Number));
-    const retainedExperienceSet = new Set((retained_experience_ids || []).map(Number));
-    const retainedEducationSet  = new Set((retained_education_ids  || []).map(Number));
+    const retainedProjectSet     = new Set((retained_project_ids     || []).map(Number));
+    const retainedExperienceSet  = new Set((retained_experience_ids  || []).map(Number));
+    const retainedEducationSet   = new Set((retained_education_ids   || []).map(Number));
+    const retainedSkillSet       = new Set((retained_skill_ids       || []).map(Number));
+    const retainedLinkSet        = new Set((retained_link_ids        || []).map(Number));
+    const retainedCertificateSet = new Set((retained_certificate_ids || []).map(Number));
 
     // ── 1. Fetch all existing resume data in parallel ─────────────────────────
     const [
@@ -154,6 +182,7 @@ exports.generateResume = async (req, res) => {
       links,
       technicalSummary,
       education,
+      skills,
     ] = await Promise.allSettled([
       PersonalDetails.query().findOne({ user_id }),
       Project.query().where({ user_id }).orderBy("project_id", "asc"),
@@ -163,14 +192,18 @@ exports.generateResume = async (req, res) => {
       Link.query().where({ user_id }).orderBy("link_id", "asc"),
       TechnicalSummary.query().findOne({ user_id }),
       Education.query().where({ user_id }).orderBy("education_id", "asc"),
+      Skill.query().where({ user_id }).orderBy("skill_id", "asc"),
     ]);
 
     const getValue = (result, fallback = null) =>
       result.status === "fulfilled" ? result.value ?? fallback : fallback;
 
-    const allProjects    = getValue(projects, []);
-    const allExperiences = getValue(workExperiences, []);
-    const allEducation   = getValue(education, []);
+    const allProjects     = getValue(projects, []);
+    const allExperiences  = getValue(workExperiences, []);
+    const allEducation    = getValue(education, []);
+    const allSkills       = getValue(skills, []);
+    const allLinks        = getValue(links, []);
+    const allCertificates = getValue(certificates, []);
 
     // ── 2. Filter to only retained records ───────────────────────────────────
     const retainedProjects = keepAllProjects
@@ -185,15 +218,33 @@ exports.generateResume = async (req, res) => {
       ? allEducation
       : allEducation.filter((e) => retainedEducationSet.has(e.education_id));
 
+    const retainedSkills = keepAllSkills
+      ? allSkills
+      : allSkills.filter((s) => retainedSkillSet.has(s.skill_id));
+
+    const retainedLinks = keepAllLinks
+      ? allLinks
+      : allLinks.filter((l) => retainedLinkSet.has(l.link_id));
+
+    const retainedCertificates = keepAllCertificates
+      ? allCertificates
+      : allCertificates.filter((c) => retainedCertificateSet.has(c.certificate_id));
+
     // ── 3. Parse chat_answers for brand-new items via Groq ────────────────────
     const hasAdditional =
       chat_answers.additional_projects ||
       chat_answers.additional_experience ||
-      chat_answers.additional_education;
+      chat_answers.additional_education ||
+      chat_answers.additional_skills ||
+      chat_answers.additional_links ||
+      chat_answers.additional_certificates;
 
-    let newProjects    = [];
-    let newExperiences = [];
-    let newEducation   = [];
+    let newProjects     = [];
+    let newExperiences  = [];
+    let newEducation    = [];
+    let newSkills       = [];
+    let newLinks        = [];
+    let newCertificates = [];
 
     if (hasAdditional) {
       const parseSystemPrompt = `You are a data extraction assistant.
@@ -207,6 +258,9 @@ Dates must be in YYYY-MM-DD format if a full date is given, or YYYY-MM if only m
 Additional Projects: "${chat_answers.additional_projects || ""}"
 Additional Work Experience: "${chat_answers.additional_experience || ""}"
 Additional Education/Certifications: "${chat_answers.additional_education || ""}"
+Additional Skills: "${chat_answers.additional_skills || ""}"
+Additional Links: "${chat_answers.additional_links || ""}"
+Additional Certificates: "${chat_answers.additional_certificates || ""}"
 
 Return JSON in this exact format:
 {
@@ -248,41 +302,77 @@ Return JSON in this exact format:
       "result_format": "<cgpa|percentage or null>",
       "result": "<string or null>"
     }
+  ],
+  "new_skills": [
+    {
+      "skill_name": "<string>",
+      "skill_level": "<Beginner|Intermediate|Expert or null>"
+    }
+  ],
+  "new_links": [
+    {
+      "link_type": "<string — e.g. linkedin, github, whatsapp, portfolio, twitter, other>",
+      "url": "<string — the full URL>"
+    }
+  ],
+  "new_certificates": [
+    {
+      "certificate_title": "<string or null>",
+      "certificate_type": "<Course Completion|Achievement|Professional Certification or null>",
+      "certificate_provided_by": "<string or null>",
+      "domain": "<string or null>",
+      "date": "<YYYY-MM-DD or null>"
+    }
   ]
 }
 
-Only include entries where the user actually mentioned something. Return empty arrays [] if nothing was mentioned for that category.`;
+Rules:
+- For new_skills: only extract if the user explicitly mentions skills they want added. If they say "yeah" or something vague with no actual skill names, return [].
+- For new_links: extract every URL the user mentions along with the platform name. If they say "whatsapp - https://web.whatsapp.com/", extract link_type "whatsapp" and the URL.
+- For new_certificates: only extract if the user explicitly names a certificate. If they say "yeah thats it" with no certificate name, return [].
+- For all categories: return empty arrays [] if nothing concrete was mentioned.
+- Only include entries where the user actually provided real data.`;
 
       const parseResult = await callGroq(parseSystemPrompt, parsePrompt);
 
-      let parsed = { new_projects: [], new_experiences: [], new_education: [] };
+      let parsed = {
+        new_projects: [], new_experiences: [], new_education: [],
+        new_skills: [], new_links: [], new_certificates: [],
+      };
       try {
         parsed = parseGroqJSON(parseResult);
       } catch (err) {
         console.error("Failed to parse additional data from Groq:", err);
       }
 
-      newProjects    = (parsed.new_projects    || []).filter((p) => p.project_title);
-      newExperiences = (parsed.new_experiences || []).filter((e) => e.company_name || e.job_title);
-      newEducation   = (parsed.new_education   || []).filter((e) => e.institution_name || e.education_type);
+      newProjects     = (parsed.new_projects     || []).filter((p) => p.project_title);
+      newExperiences  = (parsed.new_experiences  || []).filter((e) => e.company_name || e.job_title);
+      newEducation    = (parsed.new_education    || []).filter((e) => e.institution_name || e.education_type);
+      newSkills       = (parsed.new_skills       || []).filter((s) => s.skill_name);
+      newLinks        = (parsed.new_links        || []).filter((l) => l.url);
+      newCertificates = (parsed.new_certificates || []).filter((c) => c.certificate_title);
     }
 
     // ── 4. Merge retained DB records + newly parsed records ───────────────────
-    const mergedProjects    = [...retainedProjects,    ...newProjects];
-    const mergedExperiences = [...retainedExperiences, ...newExperiences];
-    const mergedEducation   = [...retainedEducation,   ...newEducation];
+    const mergedProjects     = [...retainedProjects,     ...newProjects];
+    const mergedExperiences  = [...retainedExperiences,  ...newExperiences];
+    const mergedEducation    = [...retainedEducation,    ...newEducation];
+    const mergedSkills       = [...retainedSkills,       ...newSkills];
+    const mergedLinks        = [...retainedLinks,        ...newLinks];
+    const mergedCertificates = [...retainedCertificates, ...newCertificates];
 
     const resumeData = {
-      personal_details: getValue(personalDetails),
-      projects: mergedProjects,
+      personal_details:  getValue(personalDetails),
+      projects:          mergedProjects,
       work_experience: {
-        job_role: getValue(jobRole)?.job_role ?? null,
+        job_role:    getValue(jobRole)?.job_role ?? null,
         experiences: mergedExperiences,
       },
-      certificates: getValue(certificates, []),
-      links: getValue(links, []),
+      certificates:      mergedCertificates,
+      links:             mergedLinks,
+      skills:            mergedSkills,
       technical_summary: getValue(technicalSummary),
-      education: mergedEducation,
+      education:         mergedEducation,
     };
 
     // ── 5. Build context string for Groq ──────────────────────────────────────
@@ -303,7 +393,7 @@ Write professionally, concisely, and in first person where appropriate.`;
     ).join("\n");
 
     // ── 7. Single combined Groq enhancement call ──────────────────────────────
-    const combinedPrompt = `Based on the following candidate information, generate all three of the following in a single response.
+    const combinedPrompt = `Based on the following candidate information, generate all five of the following in a single response.
 
 ---
 
@@ -340,6 +430,30 @@ Rules:
 
 ---
 
+TASK 4 — SKILLS:
+Produce two skill lists:
+
+a) "skills" — the retained skills from the candidate's profile (from === SKILLS === section below).
+   Keep the skill_name and skill_level as-is. Return them exactly as they appear.
+   If no skills exist in the profile, return an empty array.
+
+b) "ai_skills" — inferred skills extracted and inferred from:
+   - ALL project descriptions, technologies, and roles & responsibilities
+   - ALL work experience descriptions and job titles
+   - The user's additional_skills chat answer if provided: "${chat_answers.additional_skills || ""}"
+   Deduplicate against the "skills" list — do not repeat skills already in "skills".
+   Each ai_skill should have a skill_name and a suggested skill_level (Beginner/Intermediate/Expert).
+   Aim for 5-15 meaningful technical and soft skills.
+
+---
+
+TASK 5 — CERTIFICATES:
+Return the certificates exactly as provided in === CERTIFICATES === below.
+Do not modify, enhance, or add any certificates.
+If no certificates exist, return an empty array.
+
+---
+
 Respond with this exact JSON structure and nothing else:
 {
   "technical_summary_generated": "<paragraph here>",
@@ -358,6 +472,22 @@ Respond with this exact JSON structure and nothing else:
       "company_name": "<company>",
       "enhanced_description": ["bullet 1", "bullet 2", "bullet 3"]
     }
+  ],
+  "skills": [
+    { "skill_name": "<name>", "skill_level": "<level>" }
+  ],
+  "ai_skills": [
+    { "skill_name": "<name>", "skill_level": "<Beginner|Intermediate|Expert>" }
+  ],
+  "certificates_generated": [
+    {
+      "certificate_id": <number or null>,
+      "certificate_title": "<title>",
+      "certificate_type": "<type>",
+      "certificate_provided_by": "<provider>",
+      "domain": "<domain>",
+      "date": "<date or null>"
+    }
   ]
 }
 
@@ -373,8 +503,11 @@ ${context}`;
 
     let enhancedData = {
       technical_summary_generated: null,
-      projects_generated: [],
-      work_experience_generated: [],
+      projects_generated:          [],
+      work_experience_generated:   [],
+      skills:                      [],
+      ai_skills:                   [],
+      certificates_generated:      [],
     };
 
     try {
@@ -383,7 +516,7 @@ ${context}`;
       console.error("[enhancement] JSON parse failed. Raw:", enhancedRaw);
     }
 
-    // ── 8. Build slim response — only what the frontend needs ─────────────────
+    // ── 8. Build slim response ────────────────────────────────────────────────
     const projectsOut = mergedProjects.map((p) => {
       const pTitle = p.project_title?.toLowerCase() ?? "";
       const match = (enhancedData.projects_generated || []).find((g) => {
@@ -441,6 +574,31 @@ ${context}`;
       result:             e.result             ?? null,
     }));
 
+    const skillsOut = (enhancedData.skills || []).map((s) => ({
+      skill_name:  s.skill_name  ?? null,
+      skill_level: s.skill_level ?? null,
+    }));
+
+    const aiSkillsOut = (enhancedData.ai_skills || []).map((s) => ({
+      skill_name:  s.skill_name  ?? null,
+      skill_level: s.skill_level ?? null,
+    }));
+
+    const certificatesOut = mergedCertificates.map((c) => ({
+      certificate_id:          c.certificate_id          ?? null,
+      certificate_title:       c.certificate_title       ?? null,
+      certificate_type:        c.certificate_type        ?? null,
+      certificate_provided_by: c.certificate_provided_by ?? null,
+      domain:                  c.domain                  ?? null,
+      date:                    c.date                    ?? null,
+    }));
+
+    const linksOut = mergedLinks.map((l) => ({
+      link_id:   l.link_id   ?? null,
+      link_type: l.link_type ?? null,
+      url:       l.url       ?? null,
+    }));
+
     const finalPayload = {
       personal_details:            resumeData.personal_details,
       technical_summary_generated: enhancedData.technical_summary_generated ?? null,
@@ -448,7 +606,11 @@ ${context}`;
       work_experience: {
         experiences: experiencesOut,
       },
-      education: educationOut,
+      education:    educationOut,
+      skills:       skillsOut,
+      ai_skills:    aiSkillsOut,
+      certificates: certificatesOut,
+      links:        linksOut,
     };
 
     // ── 9. Save to AiSession.infoJson ─────────────────────────────────────────
