@@ -114,6 +114,7 @@ exports.getUserResumeData = async (req, res) => {
     const WorkExperience = require("../models/WorkExperience");
     const JobRole = require("../models/JobRole");
     const Certificate = require("../models/Certificate");
+    const Skill = require("../models/Skill");
     const Link = require("../models/Link");
     const TechnicalSummary = require("../models/TechnicalSummary");
     const Education = require("../models/Education");
@@ -125,6 +126,7 @@ exports.getUserResumeData = async (req, res) => {
       workExperiences,
       jobRole,
       certificates,
+      skills,
       links,
       technicalSummary,
       education,
@@ -134,6 +136,7 @@ exports.getUserResumeData = async (req, res) => {
       WorkExperience.query().where({ user_id }).orderBy("experience_id", "asc"),
       JobRole.query().findOne({ user_id }),
       Certificate.query().where({ user_id }),
+      Skill.query().where({ user_id }).orderBy("skill_id", "asc"),
       Link.query().where({ user_id }).orderBy("link_id", "asc"),
       TechnicalSummary.query().findOne({ user_id }),
       Education.query().where({ user_id }).orderBy("education_id", "asc"),
@@ -153,6 +156,7 @@ exports.getUserResumeData = async (req, res) => {
           experiences: getValue(workExperiences, []),
         },
         certificates: getValue(certificates, []),
+        skills: getValue(skills, []),
         links: getValue(links, []),
         technical_summary: getValue(technicalSummary),
         education: getValue(education, []),
