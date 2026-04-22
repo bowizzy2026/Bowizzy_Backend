@@ -9,7 +9,7 @@ const Education = require("../models/Education");
 const AiSession = require("../models/AiSession");
 const Skill = require("../models/Skill");
 
-const GROQ_API_KEY = "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";
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 
