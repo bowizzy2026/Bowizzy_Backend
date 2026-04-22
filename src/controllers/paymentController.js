@@ -8,7 +8,7 @@ const UserSubscription = require("../models/UserSubscription");
 // CREATE ORDER
 exports.createOrder = async (req, res) => {
   try {
-    const { amount, plan_type } = req.body;
+    const { amount, plan_type, breakdown, credits_applied } = req.body;
     const user_id = req.user.user_id;
 
     // validate rupees
@@ -25,14 +25,19 @@ exports.createOrder = async (req, res) => {
       receipt: `rcpt_${Date.now()}`
     });
 
-    // ✅ STORE RUPEES IN DB
+    // ✅ STORE RUPEES IN DB with breakdown details
     await UserPayment.query().insert({
       user_id,
       razorpay_order_id: order.id,
       amount: Number(amount),   // ₹100 stays 100
       currency: "INR",
       status: "created",
-      plan_type
+      plan_type,
+      credits_applied: credits_applied ? Number(credits_applied) : null,
+      base_price: breakdown?.basePrice ? Number(breakdown.basePrice) : null,
+      credit_discount: breakdown?.creditDiscount ? Number(breakdown.creditDiscount) : null,
+      cgst: breakdown?.cgst ? Number(breakdown.cgst) : null,
+      sgst: breakdown?.sgst ? Number(breakdown.sgst) : null
     });
 
     return res.json(order);
@@ -51,7 +56,8 @@ exports.verifyPayment = async (req, res) => {
       interview_id,
       razorpay_order_id,
       razorpay_payment_id,
-      razorpay_signature
+      razorpay_signature,
+      credits_applied
     } = req.body;
 
     const body = razorpay_order_id + "|" + razorpay_payment_id;
@@ -69,6 +75,9 @@ exports.verifyPayment = async (req, res) => {
       return res.status(400).json({ message: "Payment verification failed" });
     }
 
+    // Get user_id from payment record
+    const payment = await UserPayment.query().findOne({ razorpay_order_id });
+
     // ✅ ONLY UPDATE PAYMENT
     await UserPayment.query()
       .patch({
@@ -77,7 +86,23 @@ exports.verifyPayment = async (req, res) => {
         razorpay_signature
       })
       .where({ razorpay_order_id });
-    
+
+    // ✅ ADD COIN TRANSACTION IF CREDITS APPLIED > 0
+    if (credits_applied && Number(credits_applied) > 0 && payment) {
+      await UserPayment.query().knex()('credit_transactions').insert({
+        user_id: payment.user_id,
+        credits: Number(credits_applied),
+        transaction_type: "credit_applied",
+        description: `Credits applied from payment ${razorpay_order_id}`,
+        reference_id: null
+      });
+
+      // ✅ DECREASE CREDITS FROM USER TABLE
+      await UserPayment.query().knex()('users')
+        .where({ user_id: payment.user_id })
+        .decrement('credits', Number(credits_applied));
+    }
+
     return res.json({
       message: "Payment successful"
     });

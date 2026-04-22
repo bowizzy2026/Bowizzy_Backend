@@ -430,9 +430,13 @@ exports.profileData = async (req, res) => {
         last_name: personalDetails.last_name,
       },
       image: personalDetails.profile_photo_url || null,
+      isWelcomeBonusRedeemed: user.welcomeBonusRedeemed,
+      credits: user.credits || 0,
+      coupon_code: user.coupon_code || null,
     };
     
     res.json(profileData);
+
   } catch (err) {
     console.error("Error fetching profile data:", err);
     res.status(500).json({ message: "Error fetching profile data" });
