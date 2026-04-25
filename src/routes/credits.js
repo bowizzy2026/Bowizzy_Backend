@@ -33,4 +33,9 @@ router.put(
   controller.updateCredits
 );
 
+router.get(
+  "/credits/history/:user_id",
+  auth,
+  controller.getCreditHistory
+);
 module.exports = router;
