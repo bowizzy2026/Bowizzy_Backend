@@ -362,11 +362,11 @@ exports.getByUser = async (req, res) => {
 
     // Fetch interviewer reviews by interview_schedule_id
     const interviewerReviews = scheduleIds.length > 0 ? await InterviewerReview.query()
-      .whereIn('interview_schedule_id', scheduleIds)
-      .select('interview_schedule_id') : [];
+      .whereIn('interview_schedule_id', scheduleIds) : [];
 
     // Create maps for quick lookup
     const candidateReviewMap = {};
+    const interviewerReviewMap = {};
     const interviewerFeedbackMap = {};
 
     candidateReviews.forEach(cr => {
@@ -374,6 +374,7 @@ exports.getByUser = async (req, res) => {
     });
 
     interviewerReviews.forEach(ir => {
+      interviewerReviewMap[ir.interview_schedule_id] = ir;
       interviewerFeedbackMap[ir.interview_schedule_id] = true;
     });
 
@@ -388,8 +389,9 @@ exports.getByUser = async (req, res) => {
         ? `${candidateMap[s.candidate_id].first_name || ''} ${candidateMap[s.candidate_id].last_name || ''}`.trim()
         : null,
       candidate_review: candidateReviewMap[s.interview_schedule_id] || null,
+      interviewer_review: interviewerReviewMap[s.interview_schedule_id] || null,
       candidateFeedbackProvided: !!candidateReviewMap[s.interview_schedule_id],
-      interviewerFeedbackProvided: interviewerFeedbackMap[s.interview_schedule_id] || false
+      interviewerFeedbackProvided: interviewerFeedbackMap[s.interview_schedule_id] || false,
     }));
 
     return res.status(200).json(enriched);
