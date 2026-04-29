@@ -3,6 +3,9 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const controller = require("../controllers/interviewScheduleController");
 
+// Public API: Get all interviews starting in 2 hours (No Auth required)
+router.get("/mock-interview/interviews-starting-in-2-hours", controller.getInterviewsStartingIn2Hours);
+
 // API for getting user verification status
 router.get("/users/:user_id/mock-interview/interview-schedule/user-verification", auth, controller.getUserVerificationStatus);
 

@@ -6,6 +6,7 @@ const BankDetails = require("../models/bankDetails");
 const User = require("../models/User");
 const SaveSlot = require("../models/saveSlot");
 const { createGoogleMeeting } = require("../services/googleMeetService");
+const { sendCandidateInterviewEmail, sendInterviewerInterviewEmail } = require("../utils/emailService");
 
 const dayjs = require('dayjs');
 const utc = require('dayjs/plugin/utc');
@@ -968,6 +969,100 @@ exports.getNextInterview = async (req, res) => {
     return res.status(500).json({ message: "Error fetching next interview schedule" });
   }
 }
+
+// Get interviews starting in 2 hours with candidate and interviewer emails (No Auth)
+exports.getInterviewsStartingIn2Hours = async (req, res) => {
+  try {
+    const now = dayjs.utc();
+    const twoHoursLater = now.add(2, 'hours');
+
+    const interviews = await InterviewSchedule.query()
+      .select('interview_schedules.*', 'candidate.email as candidate_email', 'candidate.first_name as candidate_first_name', 'candidate.last_name as candidate_last_name', 'interviewer.email as interviewer_email', 'interviewer.first_name as interviewer_first_name', 'interviewer.last_name as interviewer_last_name')
+      .join('users as candidate', 'interview_schedules.candidate_id', '=', 'candidate.user_id')
+      .join('users as interviewer', 'interview_schedules.interviewer_id', '=', 'interviewer.user_id')
+      .where('interview_schedules.interview_status', 'confirmed')
+      .andWhereBetween('interview_schedules.start_time_utc', [now.toISOString(), twoHoursLater.toISOString()])
+      .orderBy('interview_schedules.start_time_utc', 'asc');
+
+    // Get interview slot details for each interview
+    const slotIds = interviews.map(i => i.interview_slot_id).filter(Boolean);
+    const slots = slotIds.length > 0 ? await InterviewSlot.query()
+      .whereIn('interview_slot_id', slotIds)
+      .select('interview_slot_id', 'job_role', 'experience', 'resume_url') : [];
+
+    const slotsById = slots.reduce((acc, sl) => { acc[sl.interview_slot_id] = sl; return acc; }, {});
+
+    // Format times and send emails
+    const enrichedInterviews = [];
+
+    for (const interview of interviews) {
+      const slotInfo = slotsById[interview.interview_slot_id];
+      const startTime = dayjs(interview.start_time_utc).tz('Asia/Kolkata').format('dddd, MMMM D, YYYY - h:mm A');
+      const endTime = dayjs(interview.end_time_utc).tz('Asia/Kolkata').format('h:mm A');
+      const candidateName = `${interview.candidate_first_name || ''} ${interview.candidate_last_name || ''}`.trim();
+      const interviewerName = `${interview.interviewer_first_name || ''} ${interview.interviewer_last_name || ''}`.trim();
+
+      enrichedInterviews.push({
+        ...interview,
+        formatted_start_time: startTime,
+        formatted_end_time: endTime,
+        candidate_name: candidateName,
+        interviewer_name: interviewerName,
+        job_role: slotInfo?.job_role,
+        experience: slotInfo?.experience,
+        resume_url: slotInfo?.resume_url
+      });
+
+      // Send email to candidate
+      try {
+        await sendCandidateInterviewEmail(interview.candidate_email, {
+          startTime,
+          endTime,
+          interviewerName,
+          meetingLink: interview.meeting_link,
+          jobRole: slotInfo?.job_role,
+          experience: slotInfo?.experience,
+          interviewMode: interview.interview_mode
+        });
+        console.log(`✓ Candidate email sent to: ${interview.candidate_email}`);
+      } catch (emailErr) {
+        console.error(`✗ Failed to send candidate email to ${interview.candidate_email}:`, emailErr.message);
+      }
+
+      // Send email to interviewer
+      try {
+        await sendInterviewerInterviewEmail(interview.interviewer_email, {
+          startTime,
+          endTime,
+          candidateName,
+          candidateEmail: interview.candidate_email,
+          meetingLink: interview.meeting_link,
+          jobRole: slotInfo?.job_role,
+          experience: slotInfo?.experience,
+          interviewMode: interview.interview_mode,
+          resumeUrl: slotInfo?.resume_url
+        });
+        console.log(`✓ Interviewer email sent to: ${interview.interviewer_email}`);
+      } catch (emailErr) {
+        console.error(`✗ Failed to send interviewer email to ${interview.interviewer_email}:`, emailErr.message);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: enrichedInterviews.length,
+      message: `Found ${enrichedInterviews.length} interview(s) starting in 2 hours. Emails sent to ${enrichedInterviews.length * 2} recipients.`,
+      data: enrichedInterviews
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching interviews starting in 2 hours"
+    });
+  }
+};
 
 exports.updateInterviewAsCompleted = async (req, res) => {
   try {
