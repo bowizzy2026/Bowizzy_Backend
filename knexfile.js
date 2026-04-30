@@ -1,21 +1,7 @@
 require("dotenv").config();
 
-module.exports = {
+const config = {
   development: {
-    client: "pg",
-    connection: {
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      database: process.env.DB_NAME,
-      ssl: process.env.NODE_ENV === 'development' ? false : { rejectUnauthorized: false },
-    },
-    migrations: {
-      directory: "./migrations",
-    },
-  },
-
-  production: {
     client: "pg",
     connection: {
       connectionString: process.env.DATABASE_URL,
@@ -25,4 +11,19 @@ module.exports = {
       directory: "./migrations",
     },
   },
+  production: {
+    client: "pg",
+    connection: {
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+      ssl: { rejectUnauthorized: false }
+    },
+    migrations: {
+      directory: "./migrations",
+    },
+  },
 };
+
+module.exports = config[process.env.NODE_ENV || "development"];
